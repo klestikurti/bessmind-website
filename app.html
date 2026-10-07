@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BESSMIND — Live demo</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="app-body">
+  <header class="nav">
+    <a class="brand" href="index.html"><span class="brand-mark">◉</span><span>BESSMIND</span></a>
+    <span class="demo-tag">Live demo · sample data stays in your browser</span>
+    <button class="nav-cta" id="reset" type="button">Reset demo data</button>
+  </header>
+
+  <div class="app">
+    <aside class="side" id="side">
+      <button data-view="portfolio" class="active">▣ Portfolio</button>
+      <button data-view="tasks">✓ Tasks <b id="task-count"></b></button>
+      <button data-view="documents">▤ Documents</button>
+    </aside>
+
+    <main class="main" id="main"></main>
+
+    <aside class="inbox">
+      <h3>Process an incoming message</h3>
+      <p class="hint">Paste an email or note. BESSMIND finds the project, works out what changed, and updates the model.</p>
+      <label for="proj-select">Project</label>
+      <select id="proj-select"></select>
+      <label for="msg">Message</label>
+      <textarea id="msg" rows="10" placeholder="e.g. Supplier quote for BESS Nord updated: new price +4%, delivery postponed by 3 weeks."></textarea>
+      <div class="inbox-actions">
+        <button class="primary-btn" id="analyze" type="button">Analyze message</button>
+        <button class="text-btn" id="sample" type="button">Insert sample</button>
+      </div>
+      <div id="result" aria-live="polite"></div>
+    </aside>
+  </div>
+
+  <div class="drawer" id="drawer" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
