@@ -1,0 +1,49 @@
+.app-body{background:var(--soft)}
+.demo-tag{font-size:12px;color:var(--muted)}
+.nav-cta{border:0;cursor:pointer;font-family:inherit}
+.app{display:grid;grid-template-columns:190px 1fr 330px;gap:20px;padding:22px 3%;align-items:start;max-width:1500px;margin:auto}
+.side{display:flex;flex-direction:column;gap:4px;position:sticky;top:96px}
+.side button{all:unset;cursor:pointer;padding:10px 12px;border-radius:8px;font-size:14px;color:#617789;display:flex;justify-content:space-between}
+.side button:hover{background:#e8f0f4}.side button.active{background:#e0f0f5;color:#0c729b;font-weight:700}
+.side b{background:var(--orange);color:#fff;border-radius:10px;font-size:11px;padding:1px 7px}
+button:focus-visible,select:focus-visible,textarea:focus-visible,.row-btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.main h1{font-size:24px;letter-spacing:-.03em;margin:0 0 16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.card h2{font-size:14px;margin:0 0 12px}
+.metrics-lg{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.metrics-lg div{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px}
+.metrics-lg small{color:#7a8e9c;font-size:12px}.metrics-lg b{display:block;font-size:30px;letter-spacing:-.04em;margin:4px 0}
+.metrics-lg .risk b{color:#d88924}.metrics-lg span{font-size:12px;color:#269570}
+.cols{display:grid;grid-template-columns:1.5fr 1fr;gap:16px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:#7a8e9c;font-weight:600;font-size:12px;padding:6px 8px}
+td{padding:10px 8px;border-top:1px solid #eef2f4}
+.row-btn{cursor:pointer}.row-btn:hover{background:#f4f9fb}
+.pill{font-size:12px;padding:2px 9px;border-radius:20px;background:#e8f4ff;color:#0c729b}
+.pill.Building{background:#fff4df;color:#a86a14}.pill.Operation{background:#e7f7ee;color:#157a5c}
+.ok{color:#20916e}.warn{color:#d48c29;font-weight:700}
+.bar{height:8px;width:90px;background:#e9eff1;border-radius:8px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:#20a278}.bar i.warn{background:var(--orange)}
+.feed{list-style:none;margin:0;padding:0}.feed li{padding:9px 0;border-top:1px solid #eef2f4;font-size:13px}
+.feed li:first-child{border:0}.feed small{display:block;color:#8a9ba7;font-size:11px;margin-top:2px}
+.digest{background:#eef7fa;border-radius:8px;padding:10px;font-size:13px;color:#167b9e;margin-top:10px}
+.task{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid #eef2f4;font-size:14px}
+.task:first-of-type{border:0}.task input{margin-top:3px}.task.done span{text-decoration:line-through;color:#8a9ba7}
+.task small{display:block;color:#8a9ba7;font-size:12px}
+.inbox{background:#fff;border:1px solid #b9d7e4;border-radius:12px;padding:18px;position:sticky;top:96px}
+.inbox h3{margin:0 0 6px;font-size:15px}.hint{font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 12px}
+.inbox label{display:block;font-size:12px;font-weight:700;margin:10px 0 4px}
+.inbox select,.inbox textarea{width:100%;font:inherit;font-size:13px;padding:8px;border:1px solid #cfdde5;border-radius:8px;color:var(--ink)}
+.inbox-actions{display:flex;align-items:center;gap:16px;margin-top:12px}.inbox-actions .primary-btn{border:0;cursor:pointer;font-family:inherit}
+.text-btn{background:none;border:0;cursor:pointer;font-family:inherit}
+#result{margin-top:14px;font-size:13px}
+.result{background:#f2faf6;border:1px solid #bfe3d1;border-radius:8px;padding:12px}
+.result ul{margin:6px 0 0;padding-left:18px;color:#536e80}.result b{color:var(--ink)}
+.drawer{position:fixed;inset:0;background:rgba(9,37,62,.35);z-index:40;display:flex;justify-content:flex-end}
+.drawer[hidden]{display:none}
+.drawer>div{width:min(420px,100%);background:#fff;height:100%;padding:24px;overflow:auto}
+.drawer h2{margin:0 0 4px}.drawer ul{padding-left:0;list-style:none}
+.drawer li{padding:6px 0;font-size:14px;color:#62798a}.drawer li:before{content:"✓";margin-right:10px;color:#168f72;font-weight:800}
+.drawer li.open:before{content:"○";color:#c0cdd5}
+@media(max-width:1100px){.app{grid-template-columns:1fr}.side{flex-direction:row;position:static;overflow:auto}.inbox{position:static}.metrics-lg{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}.demo-tag{display:none}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
