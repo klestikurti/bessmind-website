@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BESSMIND — The AI operating system for battery storage project execution</title>
+  <meta name="description" content="BESSMIND reads project emails, files and systems, traces consequences, and keeps every BESS project ready for the next step.">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="logo" viewBox="0 0 32 32"><rect x="2" y="5" width="25" height="22" rx="5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="28" y="13" width="3" height="6" rx="1.5" fill="currentColor"/><path d="M8 23V17M13 23V12M18 23V15M23 23V10" stroke="#169d76" stroke-width="2" stroke-linecap="round"/><polyline points="8,17 13,12 18,15 23,10" fill="none" stroke="#1688bd" stroke-width="1.4"/><g fill="#1688bd"><circle cx="8" cy="17" r="1.7"/><circle cx="13" cy="12" r="1.7"/><circle cx="18" cy="15" r="1.7"/><circle cx="23" cy="10" r="1.7"/></g></symbol></svg>
+
+<header class="top"><div class="wrap">
+  <a class="brand" href="#"><svg class="logo"><use href="#logo"/></svg><span>BESS<em>MIND</em></span></a>
+  <nav class="links"><a href="#tracer">Solution</a><a href="#lifecycle">How it works</a><a href="#sectors">Who it's for</a><a href="#demo">Live demo</a></nav>
+  <a class="btn dark" href="app.html">Try the demo →</a>
+</div></header>
+
+<main>
+<section class="hero"><div class="wrap hero-grid">
+  <div>
+    <p class="tag">AI operating system for BESS</p>
+    <h1>All your project data. One intelligent layer.</h1>
+    <p class="lead">BESSMIND reads your emails, files and systems, understands what changed, traces the consequences and keeps every project up to date — automatically.</p>
+    <div class="actions"><a class="btn blue" href="app.html">See BESSMIND in action →</a><a class="btn ghost" href="#tracer">How it thinks</a></div>
+    <p class="phases"><b>Planning</b> → <b>Building</b> → <b>Operation</b><small>One live model across the full project lifecycle</small></p>
+  </div>
+
+  <div class="stage s0" id="stage" aria-label="Animated example: an email arrives and BESSMIND updates the project">
+    <div class="col">
+      <div class="mail"><div class="mail-h"><b>✉ Grid operator</b><small>just now</small></div>
+        <p>The 110 kV reinforcement is now expected by <mark>31 October 2027</mark>, so the planned 30 June date is <mark>no longer achievable</mark>.</p></div>
+      <ul class="chips">
+        <li class="risk">⚠ Connection date slips<small>30 Jun → 31 Oct 2027</small></li>
+        <li>☐ Task created<small>Re-baseline schedule</small></li>
+        <li>◷ Contract check<small>Long-stop date clause</small></li>
+      </ul>
+    </div>
+    <div class="model">
+      <div class="m-h"><b>BESS Heide</b><span class="pill" id="pill">On track</span></div>
+      <div class="m-score"><b id="score">82</b><span>% ready to build</span></div>
+      <div class="bar"><i id="sbar"></i></div>
+      <ul class="m-list"><li>Permits approved</li><li>Supplier contract signed</li><li class="m-new">New: 1 task · date risk flagged</li></ul>
+    </div>
+    <div class="ctl"><button id="pp" type="button" aria-label="Pause animation">❚❚</button><span id="dots"></span><small id="cap">An email arrives</small></div>
+  </div>
+</div></section>
+
+<div class="ticker" aria-hidden="true"><div class="track">
+  <span>✉ Email</span><span>▤ Contracts</span><span>● SharePoint</span><span>▣ ERP</span><span>⌁ Grid operators</span><span>☑ E1 / E8 forms</span><span>◌ Permit registers</span><span>↻ Supplier quotes</span>
+  <span>✉ Email</span><span>▤ Contracts</span><span>● SharePoint</span><span>▣ ERP</span><span>⌁ Grid operators</span><span>☑ E1 / E8 forms</span><span>◌ Permit registers</span><span>↻ Supplier quotes</span>
+</div></div>
+
+<section class="problem"><div class="wrap two">
+  <h2>Germany's BESS pipeline is growing faster than teams can coordinate it by hand.</h2>
+  <p>Project information lives across email threads, spreadsheets, SharePoint folders and registers. A single change can affect the schedule, contract, filing and several people — yet the consequences are still traced manually.</p>
+</div></section>
+
+<section class="tracer dark" id="tracer"><div class="wrap">
+  <div class="sec-head"><h2>One change. Every consequence, traced.</h2><p>Pick an event and see what BESSMIND works out in seconds.</p></div>
+  <div class="tr-grid">
+    <div class="tr-pick" id="tr-pick" role="tablist"></div>
+    <div class="tr-out" id="tr-out" aria-live="polite"></div>
+  </div>
+</div></section>
+
+<section class="life" id="lifecycle"><div class="wrap">
+  <div class="sec-head"><h2>From planning to operation — visible, traceable, ready.</h2><p>Every project follows the same structure, with phase-specific milestones, documents and risks.</p></div>
+  <div class="tabs" id="tabs" role="tablist"></div>
+  <div class="life-body" id="life-body"></div>
+</div></section>
+
+<section class="feats"><div class="wrap grid5">
+  <div><span>⌾</span><h3>Defensible status</h3><p>Every number traced back to its source. No guessing when the underlying data isn't there.</p></div>
+  <div><span>⌕</span><h3>Find documents fast</h3><p>Surface the right project document across email, SharePoint and local folders.</p></div>
+  <div><span>☑</span><h3>Automated filings</h3><p>Pre-fill grid-connection forms such as E1 / E8 for quick review and confirmation.</p></div>
+  <div><span>♧</span><h3>Aligned teams</h3><p>Everyone works from the same live project model with visible accountability.</p></div>
+  <div><span>◎</span><h3>More projects to RTB</h3><p>Catch changes earlier, reduce manual work and protect critical grid-connection cycles.</p></div>
+</div></section>
+
+<section class="sectors" id="sectors"><div class="wrap">
+  <div class="sec-head"><h2>Built for everyone who moves a BESS project forward.</h2></div>
+  <div class="sec-grid">
+    <article><h3>Project developers</h3><p>Keep many projects moving to ready-to-build without losing track of grid and permit changes.</p></article>
+    <article><h3>Asset owners &amp; IPPs</h3><p>A single, source-traced view of status and risk across the whole portfolio.</p></article>
+    <article><h3>EPC &amp; contractors</h3><p>Procurement, construction and commissioning updates flow into one model, with tasks assigned automatically.</p></article>
+    <article><h3>Investors &amp; lenders</h3><p>Defensible project status where every number links to the document it came from.</p></article>
+    <article><h3>Grid &amp; permitting teams</h3><p>Pre-filled E1 / E8 forms and early warning when conditions or dates change.</p></article>
+  </div>
+</div></section>
+
+<section class="demo dark" id="demo"><div class="wrap">
+  <div class="sec-head"><h2>Try it yourself.</h2><p>Paste an email and watch the project model update. <a href="app.html">Open full screen →</a></p></div>
+  <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>bessmind.com/app</span></div>
+    <iframe src="app.html" title="BESSMIND live demo" loading="lazy"></iframe></div>
+</div></section>
+
+<section class="trust"><div class="wrap two">
+  <div><h2>Not another shared drive. Not another dashboard.</h2>
+    <p>BESSMIND is grounded in BESS-specific technical standards, regulation and grid-connection rules, while keeping every important project status traceable to its source.</p></div>
+  <div class="score-card"><small>READY-TO-BUILD</small><div class="big"><b id="big">0</b><span>%</span></div><div class="bar"><i id="bigbar"></i></div>
+    <div class="foot"><span>Source-traced</span><span>↑ +7% this week</span></div></div>
+</div></section>
+
+<section class="cta dark"><div class="wrap">
+  <h2>Turn project information into project progress.</h2>
+  <p>One intelligent operating layer for every BESS project you run.</p>
+  <a class="btn light" href="mailto:hello@bessmind.com">Start a conversation →</a>
+</div></section>
+</main>
+
+<footer><div class="wrap"><a class="brand" href="#"><svg class="logo"><use href="#logo"/></svg><span>BESS<em>MIND</em></span></a>
+  <span>AI operating system for battery storage project execution</span><span>© 2026 BESSMIND</span></div></footer>
+<script src="site.js"></script>
+</body>
+</html>
