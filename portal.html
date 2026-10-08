@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BESSMIND — Workspace</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="portal.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="logo" viewBox="0 0 32 32"><rect x="2" y="5" width="25" height="22" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><rect x="28" y="13" width="3" height="6" rx="1.5" fill="currentColor"/><path d="M8 23V17M13 23V12M18 23V15M23 23V10" stroke="#2de2a6" stroke-width="2" stroke-linecap="round"/><polyline points="8,17 13,12 18,15 23,10" fill="none" stroke="#34c9ee" stroke-width="1.4"/><g fill="#34c9ee"><circle cx="8" cy="17" r="1.7"/><circle cx="13" cy="12" r="1.7"/><circle cx="18" cy="15" r="1.7"/><circle cx="23" cy="10" r="1.7"/></g></symbol></svg>
+<div class="shell">
+  <header class="top">
+    <a class="brand" href="index.html"><svg class="logo"><use href="#logo"/></svg><span>BESS<em>MIND</em></span></a>
+    <nav id="nav">
+      <button data-view="portfolio" class="on">Portfolio</button>
+      <button data-view="intel">Intelligence</button>
+      <button data-view="risk">Risk</button>
+      <button data-view="documents">Documents</button>
+      <button data-view="tasks">Tasks <b id="tc"></b></button>
+      <button data-view="filings">Filings</button>
+      <button data-view="sources">Sources</button>
+    </nav>
+    <div class="top-r"><span class="mon"><i></i><span id="mon"></span></span><span class="who" id="who"></span><button class="btn" id="add-btn" type="button">Add project</button><button class="btn pri" id="open-inbox" type="button">Import data</button><button class="reset" id="signout" type="button">Sign out</button><button id="reset" hidden></button></div>
+  </header>
+  <main id="main"></main>
+
+  <aside class="inbox imp" id="imp" hidden aria-label="Import data">
+    <div class="in-h"><h2 id="imp-title">Import data</h2><button class="x" data-imp-close type="button" aria-label="Close">✕</button></div>
+    <div id="imp-body"></div>
+  </aside>
+
+  <aside class="inbox" id="inbox" hidden>
+    <button id="close-inbox" type="button" hidden></button><select id="psel" hidden></select><textarea id="msg" hidden></textarea><button id="analyze" type="button" hidden></button><ol id="pipe" hidden></ol><div id="result" hidden></div>
+  </aside>
+</div>
+<div class="drawer" id="drawer" hidden></div>
+<div class="pop" id="pop" hidden></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="ingest.js"></script>
+<script src="portal.js"></script>
+</body>
+</html>
