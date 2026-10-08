@@ -56,7 +56,7 @@ function kindOf(name, text, mail) {
 }
 function mkDoc(name, ext, text, pages, ts, size, pasted) {
   const mail = ext === 'eml' || !!pasted || /^(from|subject|von|betreff):/im.test(text.slice(0, 500));
-  let date = new Date(ts).toISOString().slice(0, 10); const dh = text.match(/^Date:\s*(.+)$/im); if (dh && !isNaN(new Date(dh[1]))) date = new Date(dh[1]).toISOString().slice(0, 10);
+  const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); let date = iso(new Date(ts)); const dh = text.match(/^Date:\s*(.+)$/im); if (dh && !isNaN(new Date(dh[1]))) date = iso(new Date(dh[1]));
   const ps = []; if (pages) { let o = 0; pages.forEach(p => { ps.push(o); o += p.length + 1; }); }
   return { id: 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, ext, kind: kindOf(name, text, mail), isMail: mail, src: mail ? 'Email' : 'Files', date, text: text.slice(0, 100000), pageStarts: ps.length ? ps : null, size, cur: true, ver: (name.match(/\b(?:v|rev\.?\s?)\d+(?:\.\d+)?/i) || [''])[0], p: null, page: null };
 }
@@ -68,15 +68,41 @@ async function readInputs(files, pasted) {
 }
 const pageAt = (doc, i) => { if (!doc.pageStarts) return null; let pg = 1; doc.pageStarts.forEach((o, k) => { if (i >= o) pg = k + 1; }); return pg; };
 
-/* ---------- project detection ---------- */
-const NAME_STOP = new Set('Manager Plan Schedule Team Management Number Name Phase Development Finance Storage Project Market Pipeline Technology Systems System Data Site Capacity Report Review Status Update Overview Summary Meeting Agreement Contract Contact Information Details Description Scope Risk Costs Cost Budget Timeline Documents Document Lead Engineer Owner Sponsor Charter Start End Date Title Version Page Table Section Appendix Annex The This That And For With Batterie Speicher Projekt Planung Bau'.split(' '));
+
+/* ---------- standardized information catalog ----------
+   Every fact BESSMIND looks for is listed here: key, section, label, unit, single-valued (1) or list (0).
+   Anything found about a project that matches none of these goes to "Others" (key "other"). */
+const SECS = [['ov', 'Overview & technical'], ['site', 'Site & location'], ['perm', 'Permits & approvals'], ['grid', 'Grid connection'], ['contr', 'Contracts & suppliers'], ['proc', 'Procurement & delivery'], ['fin', 'Financing'], ['cons', 'Construction & commissioning'], ['ops', 'Operation & maintenance'], ['ctc', 'Contacts & parties'], ['docs', 'Documentation'], ['act', 'Tasks & requests'], ['oth', 'Others']];
+const SECN = Object.fromEntries(SECS);
+const CAT = [
+  ['mw', 'ov', 'Capacity', 'MW', 1], ['mwh', 'ov', 'Storage capacity', 'MWh', 1], ['kv', 'ov', 'Connection voltage', 'kV', 1], ['tech', 'ov', 'Battery technology', '', 1], ['units', 'ov', 'Number of containers', '', 1],
+  ['street', 'site', 'Street and house number', '', 1], ['postal', 'site', 'Postal code', '', 1], ['city', 'site', 'City / municipality', '', 1], ['state', 'site', 'Federal state', '', 1], ['parcel', 'site', 'Parcel (Flurstück)', '', 0], ['lease', 'site', 'Lease and land rights', '', 0],
+  ['permit_status', 'perm', 'Permit status', '', 1], ['permit_auth', 'perm', 'Permitting authority', '', 1], ['permit_ref', 'perm', 'Permit reference number', '', 1], ['permit_date', 'perm', 'Permit date', '', 1], ['permit_cond', 'perm', 'Permit conditions', '', 0],
+  ['operator', 'grid', 'Grid operator', '', 1], ['connpoint', 'grid', 'Connection point / substation', '', 1], ['grid_status', 'grid', 'Connection agreement status', '', 1], ['grid_date', 'grid', 'Grid connection date', '', 1], ['energisation', 'grid', 'Energisation date', '', 1], ['grid_note', 'grid', 'Grid studies and constraints', '', 0],
+  ['supplier', 'contr', 'Supplier / manufacturer', '', 1], ['epc', 'contr', 'EPC contractor', '', 1], ['contract_status', 'contr', 'Contract status', '', 1], ['longstop', 'contr', 'Long-stop date', '', 1],
+  ['quote', 'proc', 'Quote reference', '', 1], ['price', 'proc', 'Price / value', '', 0], ['price_chg', 'proc', 'Price change', '', 0], ['delivery', 'proc', 'Delivery', '', 0], ['quote_valid', 'proc', 'Quote valid until', '', 1],
+  ['fin_status', 'fin', 'Financing status', '', 1], ['fin_amount', 'fin', 'Financing amount', '', 0], ['lender', 'fin', 'Lender / investor', '', 0],
+  ['con_start', 'cons', 'Construction start', '', 1], ['commissioning', 'cons', 'Commissioning', '', 1], ['cod', 'cons', 'Target COD', '', 1],
+  ['warranty', 'ops', 'Warranty and maintenance', '', 0],
+  ['contact', 'ctc', 'Contact', '', 0], ['org', 'ctc', 'Organisations mentioned', '', 0],
+  ['request', 'act', 'Open request', '', 0],
+  ['other', 'oth', 'Other information', '', 0]];
+const CATK = {}; CAT.forEach(([k, sec, label, unit, one]) => { CATK[k] = { k, sec, label, unit, one: !!one }; });
+const KEYSTAT = { permit_status: 0, grid_status: 1, contract_status: 2, fin_status: 3 };
+const KEYDATE = new Set(['grid_date', 'energisation', 'cod', 'con_start', 'commissioning', 'permit_date', 'quote_valid', 'longstop']);
+const KEYNUM = new Set(['mw', 'mwh', 'kv', 'units']);
+const ROLEK = { cod: 'cod', energisation: 'energisation', grid: 'grid_date', con_start: 'con_start' };
+
+/* ---------- project detection (strict: nothing is invented from a single word) ---------- */
+const NAME_STOP = new Set('Manager Plan Schedule Team Management Number Name Phase Development Finance Storage Project Projects Market Markets Pipeline Technology Systems System Data Site Capacity Report Review Status Update Overview Summary Meeting Agreement Contract Contact Information Details Description Scope Risk Costs Cost Budget Timeline Documents Document Lead Engineer Owner Sponsor Charter Start End Date Title Version Page Table Section Appendix Annex The This That And For With Batterie Speicher Projekt Planung Bau Value Test Portfolio Business Developer Developers Operator Operators Solutions Sector Industry Installation Installations Unit Units Container Containers Battery Application Applications Case Cases Service Services Energy Power Revenue Sizing Strategy Study Studies Standard Standards Pilot Example Template Sample Demo'.split(' '));
+const NAME_BAD = /^[A-ZÄÖÜ]{2,6}(?:-[A-ZÄÖÜ]{2,6})*$/;
 function detectNames(text, fname) {
-  const out = {}, add = (n, w) => { out[n] = (out[n] || 0) + w; }, tc = c => c[0].toUpperCase() + c.slice(1).toLowerCase();
+  const out = {}, add = (n, w) => { out[n] = (out[n] || 0) + w; }, ok = t => t.length > 2 && !NAME_STOP.has(t) && !NAME_BAD.test(t) && !/^\d/.test(t);
   const scan = (s, w) => {
-    for (const m of s.matchAll(/\bBESS[\s-]+([A-ZÄÖÜ][\wäöüß]+(?:-[A-ZÄÖÜ][\wäöüß]+)?)/g)) { if (!NAME_STOP.has(m[1]) && m[1].length > 2) add('BESS ' + tc(m[1]), w); }
-    for (const m of s.matchAll(/\b(?:Project|Projekt)\s+([A-ZÄÖÜ][\wäöüß-]+)/g)) { if (!NAME_STOP.has(m[1]) && m[1].length > 2) add('Project ' + tc(m[1]), w); }
+    for (const m of s.matchAll(/\bBESS[\s-]+([A-ZÄÖÜ][\wäöüß]+(?:-[A-ZÄÖÜ][\wäöüß]+)?)/g)) if (ok(m[1])) add('BESS ' + m[1], w);
+    for (const m of s.matchAll(/\b(?:Project|Projekt)(?:\s?name|name)?\s*[:–-]\s*([A-ZÄÖÜ][\wäöüß]+(?:[ -][A-ZÄÖÜ][\wäöüß]+)?)/g)) if (ok(m[1].split(/[ -]/)[0])) add(m[1].trim(), w + 2);
   };
-  scan(text, 1); scan(fname.replace(/[_.]/g, ' '), 3);
+  scan(text, 1); scan(text.slice(0, 200), 2); scan(fname.replace(/[_.]/g, ' '), 3);
   return out;
 }
 function candidates(doc) {
@@ -89,142 +115,235 @@ function candidates(doc) {
   return [...out.values()];
 }
 
-/* ---------- fact extraction (every fact keeps its source sentence) ---------- */
+/* ---------- extraction: one sentence in, standardized items out ---------- */
 const CAP = /capacity|configuration|installed|nameplate|leistung|rated|import\/export|power|kapazität/i, TMP = /temporar|limit|reduc|derat|befristet/i, GRIDW = /connection|grid|substation|umspannwerk|netz|voltage|spannung/i;
-const LOC = /site|location|located|standort|situated|substation|umspannwerk|near|gemeinde|address|plot|parcel|lease/i, NEG = /no longer|postpon|delay|verschob|verzög|previous|bisher|not achievable|unachievable/i;
+const LOC = /\b(?:site|location|located|standort|situated|substation|umspannwerk|near|gemeinde|address|adresse|plot|parcel|lease)\b/i, NEG = /no longer|postpon|delay|verschob|verzög|previous|bisher|not achievable|unachievable/i;
+const NEGST = /\b(not|no|nicht|kein|pending|awaiting|yet to|outstanding|expected|planned|targeted|ausstehend)\b/i;
 const PHX = { pl: /permit|application|study|site selection|lease|feasibility|negotiat|draft|genehmigung|antrag/i, bu: /construction|\bEPC\b|delivery|\bFAT\b|\bSAT\b|procurement|installation|civil works|baubeginn|baustelle/i, op: /in operation|operational|operating since|performance monitoring|availability|warranty claim|im betrieb/i };
-const ORG = /\b([A-ZÄÖÜ][\wÄÖÜäöüß&.\-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß&.\-]*){0,3}\s+(?:GmbH(?:\s*&\s*Co\.?\s*KG)?|AG|SE|KG|UG|Ltd\.?|B\.V\.|S\.A\.))/g;
-const dateRole = c => /\bCOD\b|commercial operation|inbetriebnahme|go-live|commissioning date/i.test(c) ? 'cod' : /energi[sz]ation|spannungsaufschaltung/i.test(c) ? 'energisation' : /connection|netzanschluss|anschluss/i.test(c) ? 'grid' : /permit|genehmigung|approval/i.test(c) ? 'permit' : null;
-const newF = () => ({ mw: [], mwh: [], kv: [], loc: {}, op: {}, dates: [], parties: {}, ph: { pl: 0, bu: 0, op: 0 }, fx: { permits: null, grid: null, contract: null, financing: null } });
-function factor(F, key, s, e, openRx, okRx, notRx) {
-  if (notRx && notRx.test(s)) return;
-  let st = null;
-  if (okRx.test(s) && !/\b(not|no|nicht|kein|pending|awaiting|yet to|outstanding|expected|planned|targeted)\b/i.test(s)) st = 'ok'; else if (openRx.test(s)) st = 'open';
-  if (st && (!F.fx[key] || RK[st] > RK[F.fx[key].st])) F.fx[key] = { st, ev: e };
+const ORG2 = /\b([A-ZÄÖÜ][\wÄÖÜäöüß&.\-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß&.\-]*){0,3}\s+(?:GmbH(?:\s*&\s*Co\.?\s*KG)?|AG|SE|KG|UG|Ltd\.?|B\.V\.|S\.A\.|Systems|Solutions|Technologies|Energy|Power|Engineering|Netze|Netz|Storage))\b/g;
+const dateRole = c => /construction (?:start|begin)|start of construction|baubeginn|spatenstich|groundbreaking/i.test(c) ? 'con_start' : /\bCOD\b|commercial operation|inbetriebnahme|go-live|commissioning date/i.test(c) ? 'cod' : /energi[sz]ation|spannungsaufschaltung/i.test(c) ? 'energisation' : /connection|netzanschluss|anschluss/i.test(c) ? 'grid' : null;
+const STREET_RX = /\b([A-ZÄÖÜ][\wäöüß.\-]*(?:\s[A-ZÄÖÜ][\wäöüß.\-]*)?\s?(?:[Ss]tra(?:ß|ss)e|[Ss]tr\.|[Ww]eg|[Aa]llee|[Pp]latz|[Rr]ing|[Dd]amm|[Cc]haussee|[Gg]asse|[Uu]fer|[Pp]fad)|(?:Am|An der|An den|Auf dem|Im|In der|Zum|Zur)\s[A-ZÄÖÜ][\wäöüß\-]+)\s+(\d{1,4}\s?[a-z]?)\b(?!\s*(?:MW|kV|%|€|GWh|MWh))/;
+const POSTAL_RX = /\b(\d{5})\s+([A-ZÄÖÜ][\wäöüß\-]+(?:\s(?:am|an der|im|bei|ob der)\s[A-ZÄÖÜ][\wäöüß\-]+)?)/;
+const NOTCITY = new Set('Euro EUR Euros MW MWh kV Mio Mrd Prozent Jahre Jahr Tage Stunden Wochen Monate Units Unit years days weeks months hours Stück'.split(' '));
+const AMT_RX = /(?:€|EUR)\s?(\d[\d.,]*)\s?(k|m|mio\.?|million|mn|mrd|bn)?(?![\w])|(\d[\d.,]*)\s?(k|m|mio\.?|million|mn|mrd|bn)?\s?(?:€|EUR|Euro)\b/i;
+const TECH = [[/LFP|iron[- ]phosphate/i, 'LFP (lithium iron phosphate)'], [/\bNMC\b/i, 'NMC'], [/sodium[- ]ion/i, 'Sodium-ion'], [/vanadium|flow battery/i, 'Flow battery'], [/lithium[- ]ion|li-?ion/i, 'Lithium-ion']];
+const GAZ_P = GAZ_RX.map(([k, rx]) => [k, rx, new RegExp('\\b(?:in|at|near|bei|nahe|nördlich von|südlich von|östlich von|westlich von)\\s+' + reEsc(k) + '\\b', 'i')]);
+const SKIP_OTHER = /^(?:dear|hi\b|hello|best regards|kind regards|regards|sincerely|thanks|thank you|many thanks|sehr geehrte|mit freundlichen|viele grüße|freundliche grüße|von:|from:|to:|cc:|subject:|date:|betreff:|an:|gesendet)/i;
+const isOp = o => OPS.some(x => o.toLowerCase().includes(x.toLowerCase()));
+const snip = (s, n) => { s = s.replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+const splitSent = line => line.split(/(?<=[.!?])(?<!\b(?:[Ss]tr|Nr|Dr|ca|No|rev|approx|bzw|Tel|\d{1,2})\.)\s+(?=[A-ZÄÖÜ0-9"'(])/);
+
+function extractSentence(s0, cur) {
+  let s = s0; if (cur && cur.name) { cur._strip = cur._strip || new RegExp('\\b' + reEsc(cur.name) + '\\b', 'gi'); s = s0.replace(cur._strip, ' ').replace(/\s+/g, ' '); }
+  const out = [], add = (k, v, o) => out.push({ k, v: String(v).trim(), w: 0, rk: 0, ...(o || {}) });
+  let m;
+  /* technical */
+  for (m of s.matchAll(/(\d{1,4}(?:[.,]\d+)?)\s*(MWh|MW|Megawattstunden|Megawatt)\b/gi)) { const wh = /^MWh|stunden/i.test(m[2]), n = parseFloat(m[1].replace(',', '.')); add(wh ? 'mwh' : 'mw', n + (wh ? ' MWh' : ' MW'), { num: n, w: (CAP.test(s) ? 2 : 0) - (TMP.test(s) ? 3 : 0) }); }
+  if ((m = s.match(/(\d{2,3})\s*-?\s*kV\b/i))) add('kv', m[1] + ' kV', { num: +m[1], w: GRIDW.test(s) ? 2 : 0 });
+  for (const [rx, name] of TECH) if (rx.test(s)) { add('tech', name); break; }
+  if ((m = s.match(/\b(\d{1,3})\s+(?:battery\s+|storage\s+|BESS\s+)?(containers?|Batteriecontainer|Speichercontainer|Container)\b/i))) add('units', m[1] + ' containers', { num: +m[1] });
+  /* address */
+  if ((m = s.match(STREET_RX))) add('street', m[1].trim() + ' ' + m[2].replace(/\s+/g, ''), { w: 3 });
+  if ((m = s.match(POSTAL_RX)) && +m[1] >= 1067 && !NOTCITY.has(m[2].split(' ')[0]) && !NAME_STOP.has(m[2])) { add('postal', m[1], { w: 3 }); add('city', m[2], { w: 6 }); }
+  if ((m = s.match(/(?:[Gg]emeinde|[Ss]tadt|municipality of|town of|city of)\s+([A-ZÄÖÜ][\wäöüß\-]+)/)) && !NAME_STOP.has(m[1])) add('city', m[1], { w: 4 });
+  GAZ_P.forEach(([k, rx, prep]) => { if (!rx.test(s)) return; if (GAZ[k][2]) add('state', k, { w: LOC.test(s) ? 2 : 1 }); else if (LOC.test(s) || prep.test(s)) add('city', k, { w: LOC.test(s) ? 3 : 1 }); });
+  if ((m = s.match(/\b(?:Flurst(?:ück)?\.?|parcel|plot)\s*(?:no\.?|nr\.?|number)?\s*(\d+(?:\/\d+)?)/i))) { const g = s.match(/Gemarkung\s+([A-ZÄÖÜ][\wäöüß\-]+)/); add('parcel', (g ? 'Gemarkung ' + g[1] + ', ' : '') + 'Flurstück ' + m[1]); }
+  if (/\blease\b|pacht|nutzungsvertrag|land rights|dienstbarkeit/i.test(s)) add('lease', snip(s0, 180));
+  /* permits */
+  if (/permit|genehmigung|bimschg|bescheid|baugenehmigung/i.test(s)) {
+    if (/(granted|approved|issued|received|erteilt|liegt vor)/i.test(s) && !NEGST.test(s)) add('permit_status', 'Granted', { rk: 3, st: 'ok' });
+    else if (/(application|applied|submitted|filed|beantragt|eingereicht)/i.test(s) && !/condition|noise|revised/i.test(s)) add('permit_status', 'Applied for', { rk: 2, st: 'open' });
+    else if (/pending|awaiting|in review|ausstehend/i.test(s)) add('permit_status', 'Pending', { rk: 1, st: 'open' });
+    if ((m = s.match(/\b((?:Landesamt|Landkreis|Kreis|Landratsamt|Bauamt|Regierungspräsidium|Bezirksregierung|Umweltamt|Bauaufsicht)(?:\s+(?:für|der|des))?\s+[A-ZÄÖÜ][\wäöüß\-]+(?:\s+[A-ZÄÖÜ][\wäöüß\-]+)?)/))) add('permit_auth', m[1]);
+    if ((m = s.match(/(?:Aktenzeichen|\bAz\.?|file (?:no\.?|number|reference)|reference(?: number)?|permit (?:no\.?|number))\s*[:#]?\s*([A-Z0-9][\w\/.\-]*\d[\w\/.\-]*)/i)) && m[1].length > 3) add('permit_ref', m[1].replace(/[.,]$/, ''));
+    if (/(granted|issued|erteilt|dated|vom|approved)/i.test(s) && !NEG.test(s)) { const d = dates(s)[0]; if (d) add('permit_date', d); }
+  }
+  if ((/permit|genehmigung|condition|auflage/i.test(s)) && /condition\s*\d+|auflage|noise|sound|lärm|emission|annex\s*\d|subject to/i.test(s)) add('permit_cond', snip(s0, 200));
+  /* grid */
+  OPS_RX.forEach(([k, rx]) => { if (rx.test(s)) add('operator', k, { w: 1 }); });
+  if ((m = s.match(/\b(Umspannwerk|Substation|UW)\s+([A-ZÄÖÜ][\wäöüß\-]+(?:\s[A-ZÄÖÜ][\wäöüß\-]+)?)/))) add('connpoint', (m[1] === 'UW' ? 'UW ' : m[1] + ' ') + m[2].trim());
+  else if ((m = s.match(/(?:[Cc]onnection point|Netzverknüpfungspunkt|NVP|Anschlusspunkt)\s*(?::|is|ist|–|-)\s*([A-ZÄÖÜ][\wäöüß\-]+(?:\s[A-ZÄÖÜ][\wäöüß\-]+){0,2})/))) add('connpoint', m[1]);
+  if (/connection|netzanschluss/i.test(s) && !/supplier|lease|pacht/i.test(s)) {
+    if (/(connection|netzanschluss)[^.]{0,60}(signed|executed|concluded|granted|confirmed|unterzeichnet|zusage)|signed[^.]{0,40}connection/i.test(s) && !NEGST.test(s)) add('grid_status', 'Signed / confirmed', { rk: 3, st: 'ok' });
+    else if (/expect|erwart/i.test(s) && /agreement|vertrag/i.test(s)) add('grid_status', 'Agreement expected', { rk: 2, st: 'open' });
+    else if (/application|applied|requested|network study|\bE1\b|\bE8\b|submitted|beantragt|study|assessment|awaiting|pending/i.test(s)) add('grid_status', 'Application / study in progress', { rk: 1, st: 'open' });
+  }
+  if (/constraint|\bN-1\b|overload|congestion|bottleneck|engpass|network study|netzverträglichkeit|short-circuit|reinforcement|verstärkung|protection concept|schutzkonzept/i.test(s)) add('grid_note', snip(s0, 200));
+  /* dates */
+  if (!NEG.test(s) && !REQ.test(s)) s.split(/,|;|\bwith\b|\bwhile\b|\bwhereas\b/).forEach(c => { const ds = dates(c); if (!ds.length) return; const role = dateRole(c) || dateRole(s); if (role) add(ROLEK[role], ds[0]); });
+  if (/commissioning|inbetriebsetzung|\bSAT\b|\bFAT\b/i.test(s) && !/\bCOD\b|commissioning date/i.test(s) && !NEG.test(s) && !REQ.test(s)) { const d = dates(s)[0]; if (d) add('commissioning', d); }
+  /* parties, contracts, quotes */
+  const orgs = [...s.matchAll(ORG2)].map(x => x[1]).filter(o => !/^(?:The|Our|This|Your|Dear|Best|Kind)\b/.test(o));
+  orgs.forEach(o => {
+    add('org', o);
+    if (/lender|\bbank\b|\bloans?\b|darlehen|investor/i.test(s)) add('lender', o);
+    else if (isOp(o) || (/grid operator|netzbetreiber/i.test(s) && /(?:Netz|Netze|Grid)$/i.test(o))) add('operator', o);
+    else if (/\bEPC\b|general contractor|generalunternehmer|contractor|bauunternehmen/i.test(s)) add('epc', o);
+    else if (/supplier|manufactur|quote|offer|angebot|lieferant|hersteller|delivered by|supplied by/i.test(s)) add('supplier', o);
+  });
+  if (/contract|agreement|vertrag|\bEPC\b|purchase order/i.test(s) && !/connection|netzanschluss|lease|pacht/i.test(s)) {
+    if (/(contract|agreement|vertrag)[^.]{0,50}(signed|executed|concluded|unterzeichnet)|signed (contract|agreement)/i.test(s) && !NEGST.test(s)) add('contract_status', 'Signed', { rk: 3, st: 'ok' });
+    else if (/draft|entwurf|negotiat|verhandl/i.test(s)) add('contract_status', 'Draft / in negotiation', { rk: 2, st: 'open' });
+  }
+  if (/quote|offer|angebot/i.test(s) && !/connection|netzanschluss/i.test(s)) add('contract_status', 'Quote received', { rk: 1, st: 'open' });
+  if (/long-?stop/i.test(s)) { const d = dates(s)[0]; if (d) add('longstop', d); }
+  if ((m = s.match(/\b(?:quote|offer|angebot|order|PO)\s*(?:no\.?|number|nr\.?|ref\.?)?\s*#?\s*([A-Z]{1,5}-\d{2,}[\w-]*)/))) { const r = s.match(/\brev(?:ision|\.)?\s?(\d+)/i); add('quote', m[1] + (r ? ' rev. ' + r[1] : '')); }
+  if (/quote|price|cost|preis|angebot|budget|capex|invoice|order value|kaufpreis|offer/i.test(s) && !/financ|loan|lender|darlehen/i.test(s)) {
+    const a = s.match(AMT_RX); if (a) add('price', a[0].trim());
+    const pc = s.match(/([+\-−]\s?\d+(?:[.,]\d+)?\s?%)/) || s.match(/(?:increase|rise|higher|erhöhung|steigerung)[^.%]{0,20}?(\d+(?:[.,]\d+)?)\s?%/i);
+    if (pc) add('price_chg', pc[1].includes('%') ? pc[1].replace('−', '-') : '+' + pc[1] + '%');
+  }
+  if (/deliver|lieferzeit|lieferung|lead time|shipping|\bslot\b/i.test(s) && (/\d+\s*(?:week|month|day|woche|monat|tag)/i.test(s) || dates(s).length)) add('delivery', snip((s0.split(/[,;:]/).find(c => /deliver|lieferzeit|lieferung|lead time|shipping|\bslot\b/i.test(c) && /\d/.test(c)) || s0).trim(), 170));
+  const vi = s.search(/valid (?:until|through|till)|gültig bis/i); if (vi >= 0) { const d = dates(s.slice(vi))[0]; if (d) add('quote_valid', d); }
+  /* financing */
+  if (/financing|financed|finanzier|term sheet|\bloans?\b|darlehen|equity|lender|kredit/i.test(s)) {
+    if (/(closed|secured|committed|signed|zugesagt)/i.test(s) && !NEGST.test(s)) add('fin_status', 'Secured / committed', { rk: 3, st: 'ok' });
+    else add('fin_status', 'In progress', { rk: 1, st: 'open' });
+    const a = s.match(AMT_RX); if (a) add('fin_amount', a[0].trim());
+  }
+  /* operation, contacts, requests */
+  if (/warrant|garantie|gewährleistung|availability guarantee|maintenance|wartung|service agreement/i.test(s)) add('warranty', snip(s0, 180));
+  for (const e of s.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g)) add('contact', e[0]);
+  if (REQ.test(s)) add('request', snip(s0.replace(/[.!]+$/, ''), 200));
+  /* nothing matched: keep it under Others instead of losing or misfiling it */
+  const strong = out.filter(x => x.k !== 'org' && x.k !== 'contact').length;
+  if (!strong && s0.length >= 25 && s0.split(/\s+/).length >= 5 && !SKIP_OTHER.test(s0.trim())) add('other', snip(s0, 220));
+  return out;
 }
-function take(F, s, ev) {
-  const e = { ...ev, s: s.slice(0, 220) };
-  for (const m of s.matchAll(/(\d{1,4}(?:[.,]\d+)?)\s*(MWh|MW)\b/gi)) (m[2].toLowerCase() === 'mwh' ? F.mwh : F.mw).push({ v: parseFloat(m[1].replace(',', '.')), w: (CAP.test(s) ? 2 : 0) - (TMP.test(s) ? 3 : 0), ev: e });
-  const kv = s.match(/(\d{2,3})\s*-?\s*kV\b/i); if (kv) F.kv.push({ v: +kv[1], w: GRIDW.test(s) ? 2 : 0, ev: e });
-  GAZ_RX.forEach(([k, rx]) => { if (rx.test(s)) { const o = F.loc[k] || (F.loc[k] = { n: 0, ev: e }); o.n += LOC.test(s) ? 3 : 1; } });
-  OPS_RX.forEach(([k, rx]) => { if (rx.test(s)) { const o = F.op[k] || (F.op[k] = { n: 0, ev: e }); o.n++; } });
-  for (const m of s.matchAll(ORG)) { const o = F.parties[m[1]] || (F.parties[m[1]] = { n: 0, ev: e, kind: ev.kind }); o.n++; }
-  if (!NEG.test(s) && !REQ.test(s)) s.split(/,|;|\bwith\b|\bwhile\b|\bwhereas\b/).forEach(c => { const ds = dates(c); if (!ds.length) return; const role = dateRole(c) || dateRole(s); if (role) F.dates.push({ role, date: ds[0], ev: e }); });
-  Object.keys(PHX).forEach(k => { if (PHX[k].test(s)) F.ph[k]++; });
-  factor(F, 'permits', s, e, /permit|genehmigung|bimschg|auflage/i, /permit[^.]{0,50}(granted|approved|issued|received)|genehmigung[^.]{0,40}(erteilt|liegt vor)|approved subject to|(approved|granted)[^.]{0,30}permit/i);
-  factor(F, 'grid', s, e, /connection|netzanschluss|network study|\bE1\b|\bE8\b|grid application/i, /(connection|netzanschluss)[^.]{0,60}(signed|executed|concluded|granted|confirmed|unterzeichnet|zusage)|signed[^.]{0,40}connection/i);
-  factor(F, 'contract', s, e, /draft|quote|offer|angebot|negotiat|\bEPC\b|contract|vertrag|supply agreement/i, /(contract|agreement|vertrag)[^.]{0,50}(signed|executed|concluded|unterzeichnet)|signed (contract|agreement)/i, /connection|netzanschluss/i);
-  factor(F, 'financing', s, e, /financ|term sheet|loan|darlehen|equity|lender/i, /financ[^.]{0,50}(closed|secured|committed|signed|zugesagt)|term sheet[^.]{0,30}signed/i);
-}
+
+const newF = () => ({ items: [], ph: { pl: 0, bu: 0, op: 0 } });
 function extractFacts(doc, cands, strict) {
-  const out = {}, dflt = cands.length === 1 && !strict ? cands[0] : null; let pos = 0;
+  const out = {}, dflt = cands.length === 1 && !strict ? cands[0] : null; let pos = 0, cur = dflt;
   doc.text.split(/\n+/).forEach(line => {
-    let cur = dflt;
-    line.split(/(?<=[.!?])\s+/).forEach(raw => {
+    if (line.length >= 70) cur = dflt;
+    splitSent(line).forEach(raw => {
       const s = raw.trim(); if (!s) return;
       const m = cands.filter(c => c.rx.test(s)); if (m.length > 1) return; if (m.length === 1) cur = m[0]; if (!cur) return;
       const i = doc.text.indexOf(s, pos); if (i >= 0) pos = i;
-      take(out[cur.key] || (out[cur.key] = newF()), s, { doc: doc.name, pg: i >= 0 ? pageAt(doc, i) : null, date: doc.date, kind: doc.kind });
+      const ev = { doc: doc.name, docId: doc.id, pg: i >= 0 ? pageAt(doc, i) : null, date: doc.date, kind: doc.kind, s: s.slice(0, 240) };
+      const F = out[cur.key] || (out[cur.key] = newF());
+      extractSentence(s, cur).forEach(x => F.items.push({ ...x, ev }));
+      Object.keys(PHX).forEach(k => { if (PHX[k].test(s)) F.ph[k]++; });
     });
   });
   return out;
 }
-const addMap = (d, s) => { for (const k in s) { const o = d[k] || (d[k] = { n: 0, ev: s[k].ev, kind: s[k].kind }); o.n += s[k].n; } };
-function mergeF(list) {
-  const F = newF();
-  list.forEach(x => { F.mw.push(...x.mw); F.mwh.push(...x.mwh); F.kv.push(...x.kv); F.dates.push(...x.dates); addMap(F.loc, x.loc); addMap(F.op, x.op); addMap(F.parties, x.parties); Object.keys(F.ph).forEach(k => F.ph[k] += x.ph[k]);
-    Object.keys(x.fx).forEach(k => { const a = x.fx[k], b = F.fx[k]; if (a && (!b || RK[a.st] > RK[b.st] || (RK[a.st] === RK[b.st] && a.ev.date > b.ev.date))) F.fx[k] = a; }); });
-  return F;
+function mergeF(list) { const F = newF(); list.forEach(x => { F.items.push(...x.items); Object.keys(F.ph).forEach(k => F.ph[k] += x.ph[k]); }); return F; }
+const phaseOf = ph => ph.op >= 2 && ph.op >= ph.bu ? 'Operation' : ph.bu >= 2 && ph.bu >= ph.pl ? 'Building' : 'Planning';
+
+/* ---------- choosing the final value per catalog field ---------- */
+const dkey = x => x.k === 'contact' ? ((x.v.match(/[\w.+-]+@[\w.-]+/) || [x.v])[0]).toLowerCase() : norm(x.v).toLowerCase();
+const byDate = (a, b) => a.ev.date < b.ev.date ? 1 : a.ev.date > b.ev.date ? -1 : 0;
+function pickOne(k, arr) {
+  arr = arr.filter(x => x.w > -1); if (!arr.length) return null;
+  const man = arr.find(x => x.man); if (man) return { ...man, alts: [] };
+  let sorted;
+  if (k in KEYSTAT) sorted = arr.slice().sort((a, b) => b.rk - a.rk || byDate(a, b));
+  else if (KEYDATE.has(k)) sorted = arr.slice().sort(byDate);
+  else { const sc = {}; arr.forEach(x => { sc[dkey(x)] = (sc[dkey(x)] || 0) + 1 + x.w; }); sorted = arr.slice().sort((a, b) => sc[dkey(b)] - sc[dkey(a)] || byDate(a, b)); }
+  const top = sorted[0]; return { ...top, alts: [...new Set(sorted.filter(x => dkey(x) !== dkey(top)).map(x => x.v))].slice(0, 4) };
 }
-function best(arr) {
-  if (!arr.length) return null; const c = {}; arr.forEach(x => { c[x.v] = (c[x.v] || 0) + 1 + x.w; });
-  const v = Object.keys(c).sort((a, b) => c[b] - c[a])[0]; return arr.filter(x => String(x.v) === v).sort((a, b) => a.ev.date < b.ev.date ? 1 : -1)[0];
-}
-function finalizeF(F) {
-  const o = { dates: {} }, mw = best(F.mw.filter(x => x.w > -1)), mwh = best(F.mwh.filter(x => x.w > -1)), kv = best(F.kv.filter(x => x.w > -1));
-  if (mw) o.mw = mw; if (mwh) o.mwh = mwh; if (kv) o.kv = kv;
-  const loc = Object.entries(F.loc).map(([k, x]) => [k, x.n - (GAZ[k][2] ? 5 : 0), x.ev]).sort((a, b) => b[1] - a[1])[0]; if (loc) o.city = { v: loc[0], ev: loc[2] };
-  const op = Object.entries(F.op).sort((a, b) => b[1].n - a[1].n)[0]; if (op) o.operator = { v: op[0], ev: op[1].ev };
-  Object.keys(DL).forEach(r => { const a = F.dates.filter(d => d.role === r).sort((x, y) => x.ev.date < y.ev.date ? 1 : x.ev.date > y.ev.date ? -1 : 0); if (a.length) o.dates[r] = { date: a[0].date, ev: a[0].ev, alts: [...new Set(a.slice(1).map(x => x.date).filter(d => d !== a[0].date))] }; });
-  o.parties = Object.entries(F.parties).sort((a, b) => b[1].n - a[1].n).slice(0, 6).map(([n, x]) => ({ name: n, kind: x.kind, ev: x.ev }));
-  const ph = F.ph; o.phase = ph.op >= 2 && ph.op >= ph.bu ? 'Operation' : ph.bu >= 2 && ph.bu >= ph.pl ? 'Building' : 'Planning';
-  o.f = {}; FK.forEach(k => o.f[k] = F.fx[k] || { st: 'none', ev: null });
-  return o;
+function finalizeItems(list) {
+  const by = {}; list.forEach(x => { if (CATK[x.k]) (by[x.k] = by[x.k] || []).push(x); });
+  const out = [];
+  CAT.forEach(([k]) => {
+    const arr = by[k]; if (!arr) return;
+    if (CATK[k].one) { const b = pickOne(k, arr); if (b) out.push(b); return; }
+    const seen = new Set();
+    arr.slice().sort((a, b) => b.v.length - a.v.length).filter(x => { const d = dkey(x); if (seen.has(d)) return false; seen.add(d); return true; }).sort(byDate).slice(0, k === 'other' ? 60 : 12).forEach(x => out.push(x));
+  });
+  return out;
 }
 
 /* ---------- proposal: what BESSMIND would add or change (nothing is applied yet) ---------- */
 const ddiff = (a, b) => { const x = pd(a), y = pd(b); return x != null && y != null ? Math.round(x - y) : Math.round((dm(a) - dm(b)) * 30.4); };
-function diffExisting(p, F) {
-  const ch = [], add = (k, label, old, nu, ev, extra) => ch.push({ k, label, old, new: nu, ev, on: true, type: old ? 'changed' : 'new', ...extra });
-  [['mw', 'Capacity', 'MW', p.mw], ['mwh', 'Storage', 'MWh', p.mwh], ['kv', 'Voltage', 'kV', p.kv]].forEach(([k, l, u, cur]) => { if (F[k] && F[k].v !== cur) add(k, l, cur ? cur + ' ' + u : '', F[k].v + ' ' + u, F[k].ev, { val: F[k].v }); });
-  if (F.city && !(p.city || '').includes(F.city.v)) add('city', 'Location', p.city, F.city.v, F.city.ev, { val: F.city.v });
-  if (F.operator && F.operator.v !== p.operator) add('operator', 'Grid operator', p.operator || '', F.operator.v, F.operator.ev, { val: F.operator.v });
-  Object.keys(DL).forEach(r => { const d = F.dates[r]; if (!d) return; const old = p.dates && p.dates[r] ? p.dates[r].date : ''; if (!old || Math.abs(ddiff(d.date, old)) > 2) add('date:' + r, DL[r], old, d.date, d.ev, { role: r, val: d.date, days: old ? ddiff(d.date, old) : 0 }); });
-  FK.forEach((k, i) => { const x = F.f[k]; if (RK[x.st] > RK[p.f[i]]) add('f:' + i, FL[i], FS[p.f[i]], FS[x.st], x.ev, { idx: i, st: x.st, type: 'upgrade' }); });
+const LEGK = { mw: ['mw', v => v + ' MW'], mwh: ['mwh', v => v + ' MWh'], kv: ['kv', v => v + ' kV'], operator: ['operator', v => v], cod: ['cod', v => v] };
+function curItem(p, k) {
+  const a = (p.items || []).find(x => x.k === k); if (a) return a;
+  const l = LEGK[k]; if (l && p[l[0]] != null && p[l[0]] !== '') return { k, v: l[1](p[l[0]]), num: p[l[0]], rk: 0, ev: { doc: 'Project record', date: '0000-00-00', s: '' } };
+  return null;
+}
+function diffItems(p, items) {
+  const cur = (p && p.items) || [], ch = [];
+  items.forEach(it => {
+    const c = CATK[it.k], base = { k: it.k, sec: c.sec, label: c.label, new: it.v, it, ev: it.ev, on: true };
+    if (c.one) {
+      const o = p ? curItem(p, it.k) : null;
+      if (!o) ch.push({ ...base, old: '', type: 'new' });
+      else if (dkey(o) !== dkey(it)) {
+        const older = o.ev && it.ev && it.ev.date < o.ev.date, lower = it.k in KEYSTAT && it.rk < (o.rk || 0);
+        const d = KEYDATE.has(it.k) && dates(o.v).length && dates(it.v).length ? ddiff(it.v, o.v) : 0;
+        ch.push({ ...base, old: o.v, type: 'changed', on: !(older || lower), days: d, note: older ? 'older than the value on file' : lower ? 'less advanced than the status on file' : '' });
+      }
+    } else if (!cur.some(x => x.k === it.k && dkey(x) === dkey(it))) ch.push({ ...base, old: '', type: 'added' });
+  });
   return ch;
 }
 function buildProposal(docs, errors) {
   const P = new Map(), una = [];
   docs.slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(doc => {
     const c = candidates(doc); if (!c.length) { una.push(doc); return; }
-    const fx = extractFacts(doc, c, false); doc.single = c.length === 1; doc.primary = c.slice().sort((a, b) => b.w - a.w)[0].key;
-    c.forEach(cd => { const e = P.get(cd.key) || { key: cd.key, name: cd.name, existing: cd.existing, include: true, docs: [], Fs: [] }; e.docs.push(doc.id); if (fx[cd.key]) e.Fs.push(fx[cd.key]); P.set(cd.key, e); });
+    const fx = extractFacts(doc, c, false), prim = c.slice().sort((a, b) => b.w - a.w)[0];
+    doc.single = c.length === 1; doc.primary = prim.key;
+    const fm = doc.text.match(/^(?:From|Von):\s*(.+)$/im); if (fm && fx[prim.key]) fx[prim.key].items.push({ k: 'contact', v: snip(fm[1], 100), w: 0, rk: 0, ev: { doc: doc.name, docId: doc.id, pg: null, date: doc.date, kind: doc.kind, s: snip(fm[0], 160) } });
+    c.forEach(cd => { const e = P.get(cd.key) || { key: cd.key, name: cd.name, existing: cd.existing, include: true, docs: [], Fs: [], w: 0 }; e.docs.push(doc.id); e.w += cd.w; if (fx[cd.key]) e.Fs.push(fx[cd.key]); P.set(cd.key, e); });
   });
-  const projects = [...P.values()]; projects.forEach(e => { e.F = finalizeF(mergeF(e.Fs)); e.changes = e.existing ? diffExisting(proj(e.existing), e.F) : null; });
+  const projects = [...P.values()];
+  projects.forEach(e => {
+    const F = mergeF(e.Fs); e.items = finalizeItems(F.items); e.phase = phaseOf(F.ph);
+    e.changes = diffItems(e.existing ? proj(e.existing) : null, e.items);
+    if (!e.existing) { e.low = e.w < 3 && !e.changes.some(c => !['other', 'org', 'contact', 'request'].includes(c.k)); e.include = !e.low; }
+  });
   return { docs, projects, unassigned: una, errors: errors || [], hits: null };
 }
-function proposeFromName(name, extra) {
-  const key = 'new:' + name.toLowerCase(), c = { key, name, existing: null, rx: rxOf(name), w: 5 }, hits = S.docs.filter(d => d.text && c.rx.test(d.text + ' ' + d.name)), Fs = [];
+function proposeFromName(name, x) {
+  const key = 'new:' + name.toLowerCase(), c = { key, name, existing: null, rx: rxOf(name), w: 5 }, hits = S.docs.filter(d => d.text && (c.rx.test(d.text) || c.rx.test(d.name))), Fs = [];
   hits.forEach(d => { const fx = extractFacts(d, [c], true); if (fx[key]) Fs.push(fx[key]); });
-  const e = { key, name, existing: null, include: true, docs: [], Fs, found: hits.length }; e.F = finalizeF(mergeF(Fs)); e.changes = null;
-  const me = { doc: 'Entered by you', pg: null, date: new Date().toISOString().slice(0, 10), s: '' };
-  if (extra.mw && +extra.mw > 0) e.F.mw = { v: +extra.mw, ev: me };
-  if (extra.city) { const k = Object.keys(GAZ).find(g => g.toLowerCase() === extra.city.trim().toLowerCase()); e.F.city = { v: k || extra.city.trim(), ev: me }; }
-  if (extra.cod) { const d = dates(extra.cod)[0]; if (d) e.F.dates.cod = { date: d, ev: me, alts: [] }; }
+  const me = { doc: 'Manual entry', docId: null, pg: null, date: new Date().toISOString().slice(0, 10), kind: 'Manual', s: '' }, man = [];
+  const addM = (k, v, num) => { if (v && String(v).trim()) man.push({ k, v: String(v).trim(), num, w: 9, rk: 9, man: true, ev: me }); };
+  addM('street', x.street); addM('postal', x.postal); addM('city', x.city);
+  if (x.mw && +x.mw > 0) addM('mw', +x.mw + ' MW', +x.mw);
+  if (x.cod) addM('cod', dates(x.cod)[0] || x.cod);
+  Fs.push({ items: man, ph: { pl: 0, bu: 0, op: 0 } });
+  const F = mergeF(Fs), e = { key, name, existing: null, include: true, docs: [], Fs, found: hits.length, manual: true, items: finalizeItems(F.items), phase: phaseOf(F.ph) };
+  e.changes = diffItems(null, e.items);
   return { docs: [], projects: [e], unassigned: [], errors: [], hits };
 }
 
-/* ---------- applying: create / update projects, file documents, run the rule engine ---------- */
+/* ---------- applying: create / update projects, file documents ---------- */
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
-function baseRtb(p) { const pts = { ok: 20, open: 8, none: 0 }; let v = 10 + p.f.reduce((a, x) => a + pts[x], 0); if (p.phase === 'Building') v += 8; if (p.phase === 'Operation') v += 15; return clampN(v, 5, 98); }
-function doneOf(p) { if (p.phase === 'Operation') return 9; if (p.phase === 'Building') return p.f[2] === 'ok' ? 5 : 4; return (p.city ? 1 : 0) + (p.f[0] === 'ok' ? 1 : 0) + (p.f[1] === 'ok' ? 1 : 0) + (p.f[2] === 'ok' ? 1 : 0); }
-const dEnd = s => { const q = s.match(/Q([1-4])\s+(\d{4})/i); return q ? (q[2] - 2025) * 12 + q[1] * 3 : dm(s); };
-function ensureTl(p) {
-  if (p.tl || p.phase === 'Operation') return;
-  const d = p.dates || {}; let cod, gridEnd = null;
-  if (d.cod) cod = dEnd(d.cod.date); else if (d.energisation) { gridEnd = dEnd(d.energisation.date); cod = gridEnd + 3; } else if (d.grid) { gridEnd = dEnd(d.grid.date); cod = gridEnd + 3; } else return;
-  const R = [[cod - 36, cod - 20], [cod - 30, gridEnd != null ? gridEnd : cod - 3], [cod - 20, cod - 11], [cod - 12, cod - 2], [cod - 2, cod]];
-  p.tl = R.map(([s, e]) => ({ s, e, s0: s, e0: e })); p.tlAssumed = true;
-  p.t = { pl: [R[0][0], R[1][1]], bu: [R[2][0], cod], op: [cod, cod + 12] };
-  if (!d.cod) { p.codEst = true; p.cod = qlab(cod) + ' (est.)'; } else p.cod = qlab(cod);
-}
-function setFs(p, key, label, value, ev) { (p.fs = p.fs || {})[key] = { label, value: String(value), src: srcOf(ev), ev: (ev && ev.s) || '' }; }
+const blankProject = name => ({ id: uid(name), name: name.trim(), phase: 'Planning', f: ['none', 'none', 'none', 'none'], fsrc: [null, null, null, null], mw: null, mwh: null, kv: null, cp: null, operator: null, city: '', lat: null, lon: null, cod: '', dates: {}, milestones: [], trend: [], shifts: [], why: [], tl: null, t: null, done: 0, rtb: null, items: [], hist: [], created: Date.now() });
 const uid = name => { let b = name.toLowerCase().replace(/[^a-z0-9äöü]+/g, '-').replace(/^-|-$/g, '') || 'project', id = b, n = 2; while (proj(id)) id = b + '-' + n++; return id; };
-function createProject(e) {
-  const F = e.F, p = { id: uid(e.name), name: e.name.trim(), phase: F.phase, f: FK.map(k => F.f[k].st), fsrc: FK.map(k => F.f[k].ev ? srcOf(F.f[k].ev) : null), mw: F.mw ? F.mw.v : null, mwh: F.mwh ? F.mwh.v : null, kv: F.kv ? F.kv.v : null, cp: null, operator: F.operator ? F.operator.v : null, city: F.city ? F.city.v : '', lat: null, lon: null, cod: '', dates: {}, fs: {}, milestones: [], trend: [], shifts: [], why: [], tl: null, t: null, done: 0, rtb: 0, created: Date.now() };
-  [['mw', 'Capacity', 'MW'], ['mwh', 'Storage', 'MWh'], ['kv', 'Voltage', 'kV']].forEach(([k, l, u]) => { if (F[k]) setFs(p, k, l, F[k].v + ' ' + u, F[k].ev); });
-  if (F.city) { setFs(p, 'city', 'Location', F.city.v, F.city.ev); const g = GAZ[F.city.v]; if (g) { p.lat = g[0]; p.lon = g[1]; } }
-  if (F.operator) setFs(p, 'operator', 'Grid operator', F.operator.v, F.operator.ev);
-  Object.entries(F.dates).forEach(([r, d]) => { p.dates[r] = { date: d.date, src: srcOf(d.ev) }; p.milestones.push({ label: DL[r], date: d.date }); setFs(p, r, DL[r], d.date, d.ev); });
-  if (!p.lat) { const g = GAZ[shortOf(p.name)]; if (g) { p.lat = g[0]; p.lon = g[1]; if (!p.city) p.city = shortOf(p.name); } }
-  p.done = doneOf(p); p.rtb = baseRtb(p); ensureTl(p);
-  return p;
+const getI = (p, k) => (p.items || []).find(x => x.k === k);
+function setItem(p, c) {
+  const it = c.it, k = it.k; p.items = p.items || [];
+  const rec = { id: 'i' + (S.nextId++), k, v: it.v, num: it.num, rk: it.rk, st: it.st, alts: it.alts || [], ev: it.ev, t: Date.now() };
+  if (CATK[k].one) {
+    const i = p.items.findIndex(x => x.k === k);
+    if (i >= 0) { if (c.type === 'changed') (p.hist = p.hist || []).unshift({ k, sec: CATK[k].sec, label: CATK[k].label, old: p.items[i].v, new: it.v, ev: it.ev, t: Date.now(), days: c.days || 0 }); p.items[i] = rec; }
+    else { if (c.old && c.type === 'changed') (p.hist = p.hist || []).unshift({ k, sec: CATK[k].sec, label: CATK[k].label, old: c.old, new: it.v, ev: it.ev, t: Date.now(), days: c.days || 0 }); p.items.push(rec); }
+  } else p.items.push(rec);
 }
-function applyChanges(p, e, sum) {
-  const before = baseRtb(p); p.fs = p.fs || {};
-  e.changes.filter(c => c.on).forEach(c => {
-    if (['mw', 'mwh', 'kv'].includes(c.k)) { p[c.k] = c.val; setFs(p, c.k, c.label, c.new, c.ev); }
-    else if (c.k === 'city') { p.city = c.val; const g = GAZ[c.val]; if (g) { p.lat = g[0]; p.lon = g[1]; } setFs(p, 'city', c.label, c.val, c.ev); }
-    else if (c.k === 'operator') { p.operator = c.val; setFs(p, 'operator', c.label, c.val, c.ev); }
-    else if (c.k.startsWith('date:')) {
-      p.dates = p.dates || {}; p.dates[c.role] = { date: c.val, src: srcOf(c.ev) }; setFs(p, c.role, c.label, c.val, c.ev); (p.milestones = p.milestones || []).unshift({ label: c.label, date: c.val });
-      if (p.tl && c.days) { shiftProject(p, c.role === 'cod' ? 'Construction' : 'Grid connection', c.days, c.label + ' changed in ' + c.ev.doc, c.ev.s);
-        if (c.days > 0) { p.why.unshift({ cat: c.role === 'cod' ? 'Schedule' : 'Grid', pts: clampN(Math.round(c.days / 5), 5, 30), title: c.label + ' moved +' + c.days + ' days', ev: c.ev.s, t: Date.now() }); S.changes.unshift({ t: Date.now(), p: p.id, text: c.label + ' moved +' + c.days + ' days', src: c.ev.doc, ev: c.ev.s }); } }
-      else if (!p.tl) ensureTl(p);
-    } else if (c.k.startsWith('f:')) { p.f[c.idx] = c.st; (p.fsrc = p.fsrc || [])[c.idx] = srcOf(c.ev); }
+function syncDerived(p) {
+  const g = k => getI(p, k);
+  ['mw', 'mwh', 'kv'].forEach(k => { const i = g(k); if (i && i.num != null) p[k] = i.num; });
+  const op = g('operator'); if (op) p.operator = op.v;
+  const city = g('city'), state = g('state'); if (city) p.city = city.v + (state ? ', ' + state.v : '');
+  const cod = g('cod'); if (cod) p.cod = cod.v; else if (!p.demo) p.cod = '';
+  Object.keys(KEYSTAT).forEach(k => { const i = g(k); if (i) { p.f[KEYSTAT[k]] = i.st || 'open'; p.fsrc[KEYSTAT[k]] = srcOf(i.ev); } });
+  p.dates = {}; [['cod', 'cod'], ['energisation', 'energisation'], ['grid_date', 'grid'], ['permit_date', 'permit']].forEach(([k, r]) => { const i = g(k); if (i) p.dates[r] = { date: i.v, src: srcOf(i.ev) }; });
+  if (city && GAZ[city.v] && !GAZ[city.v][2] && (!p.geo || /approx|not found/.test(p.geo.prec))) { p.lat = GAZ[city.v][0]; p.lon = GAZ[city.v][1]; p.geo = { key: '', prec: 'city (approximate)', src: 'built-in place list' }; }
+}
+function applyChanges(p, changes) {
+  const done = changes.filter(c => c.on);
+  done.forEach(c => {
+    setItem(p, c);
+    if (p.tl && c.days && (c.k === 'cod' || c.k === 'grid_date')) {
+      shiftProject(p, c.k === 'cod' ? 'Construction' : 'Grid connection', c.days, c.label + ' changed in ' + c.ev.doc, c.ev.s);
+      if (c.days > 0) { p.why.unshift({ cat: c.k === 'cod' ? 'Schedule' : 'Grid', pts: clampN(Math.round(c.days / 5), 5, 30), title: c.label + ' moved +' + c.days + ' days', ev: c.ev.s, t: Date.now() }); }
+    }
   });
-  p.rtb = clampN(p.rtb + baseRtb(p) - before, 3, 99);
-  if (p.phase !== 'Operation' && p.done < doneOf(p)) p.done = doneOf(p);
+  syncDerived(p); return done;
 }
 function storeDoc(d, pid) {
   const key = d.name.toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[\s_-]*(v|rev\.?|version)?\s*\d+(\.\d+)*\s*$/, '').trim();
@@ -234,17 +353,50 @@ function storeDoc(d, pid) {
   return true;
 }
 function applyProposal(pr) {
-  const sum = { t: Date.now(), created: [], updated: [], docs: 0, findings: [] }, idOf = {}, rtb0 = {};
-  S.projects.forEach(p => rtb0[p.id] = p.rtb);
+  const sum = { t: Date.now(), created: [], updated: [], docs: 0, findings: [], facts: 0, others: 0 }, idOf = {}, touched = [];
   pr.projects.filter(x => x.include).forEach(e => {
-    const doc0 = pr.docs.find(d => d.id === e.docs[0]), srcL = doc0 ? doc0.src : 'Entered by you';
-    if (e.existing) { const p = proj(e.existing); applyChanges(p, e, sum); idOf[e.key] = p.id; sum.updated.push(p.name); S.changes.unshift({ t: Date.now(), p: p.id, text: 'Project updated from imported data', src: srcL, ev: e.changes.filter(c => c.on).map(c => c.label).join(', ') || 'Documents filed' }); }
-    else { const p = createProject(e); S.projects.push(p); idOf[e.key] = p.id; sum.created.push(p.name); S.changes.unshift({ t: Date.now(), p: p.id, text: 'Project created from imported data', src: srcL, ev: doc0 ? doc0.name : 'Entered by you' }); if (pr.hits) pr.hits.forEach(d => { if (!d.p) d.p = p.id; }); }
+    const doc0 = pr.docs.find(d => d.id === e.docs[0]), srcL = doc0 ? doc0.name : 'Manual entry';
+    let p = e.existing ? proj(e.existing) : null; const isNew = !p;
+    if (isNew) { p = blankProject(e.name); p.phase = e.phase || 'Planning'; S.projects.push(p); }
+    const done = applyChanges(p, e.changes), main = done.filter(c => c.k !== 'other'), nOther = done.length - main.length;
+    idOf[e.key] = p.id; touched.push(p); sum.facts += main.length; sum.others += nOther;
+    const t = Date.now();
+    if (isNew) { sum.created.push(p.name); S.changes.unshift({ t, p: p.id, text: 'Project created', src: srcL, ev: main.slice(0, 4).map(c => c.label + ': ' + c.new).join(' · ') || 'No facts found yet', sec: 'ov' }); }
+    else {
+      sum.updated.push(p.name);
+      main.slice(0, 8).forEach(c => S.changes.unshift({ t, p: p.id, text: c.label + ': ' + (c.old ? c.old + ' → ' : '') + c.new, src: c.ev.doc, ev: c.ev.s, sec: c.sec }));
+      if (main.length > 8) S.changes.unshift({ t, p: p.id, text: (main.length - 8) + ' more facts added', src: srcL, ev: '', sec: 'ov' });
+    }
+    if (nOther) S.changes.unshift({ t, p: p.id, text: nOther + ' other note' + (nOther === 1 ? '' : 's') + ' filed under Others', src: srcL, ev: '', sec: 'oth' });
   });
   pr.docs.forEach(d => { const pid = idOf[d.primary] || null; d.p = pid; if (storeDoc(d, pid)) sum.docs++; });
   pr.unassigned.forEach(d => { if (storeDoc(d, d.assign || null)) sum.docs++; });
+  if (pr.hits) pr.hits.forEach(d => { if (!d.p && touched[0]) d.p = touched[0].id; });
   pr.docs.concat(pr.unassigned).filter(d => d.isMail || d.kind === 'Document').forEach(d => { const pid = d.p || d.assign, forced = d.single && pid && proj(pid) ? pid : 'auto', r = analyze(d.text, forced); if (!r.error) sum.findings.push(...r.results); });
-  S.projects.forEach(p => { if (rtb0[p.id] != null && rtb0[p.id] !== p.rtb) p.trend = [...(p.trend || []), rtb0[p.id]].slice(-5); });
   S.log.unshift({ t: sum.t, docs: pr.docs.concat(pr.unassigned).map(d => d.name), created: sum.created, updated: sum.updated });
-  save(); return sum;
+  save();
+  if (!S.geoOff) touched.forEach(p => geocodeProject(p).then(ch => { if (ch) { save(); if (typeof render === 'function') render(); } }).catch(() => {}));
+  return sum;
+}
+
+/* ---------- map position: OpenStreetMap Nominatim (street, postal code and city are sent), 1 request per second ---------- */
+const GEO = { q: Promise.resolve() };
+function geoQueue(fn) { const r = GEO.q.then(fn); GEO.q = r.catch(() => {}).then(() => sleep(1100)); return r; }
+async function nominatim(params) {
+  const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, t = ctl ? setTimeout(() => ctl.abort(), 8000) : null;
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?' + new URLSearchParams({ format: 'json', addressdetails: '1', limit: '1', countrycodes: 'de', ...params }), { signal: ctl ? ctl.signal : undefined, headers: { 'Accept-Language': 'en' } });
+    if (!r.ok) return null; const j = await r.json(); return j[0] || null;
+  } catch { return null; } finally { if (t) clearTimeout(t); }
+}
+async function geocodeProject(p) {
+  const v = k => (getI(p, k) || {}).v || '', a = { street: v('street'), postal: v('postal'), city: v('city') };
+  if (!a.street && !a.postal && !a.city) return false;
+  const key = [a.street, a.postal, a.city].join('|'); if (p.geo && p.geo.key === key) return false;
+  let res = null, prec = '';
+  if (a.street) { const m = a.street.match(/^(.*?)\s+(\d+\s?[a-z]?)$/), street = m ? m[2] + ' ' + m[1] : a.street; res = await geoQueue(() => nominatim({ street, ...(a.city ? { city: a.city } : {}), ...(a.postal ? { postalcode: a.postal } : {}) })); if (res) prec = res.address && res.address.house_number ? 'address' : 'street'; }
+  if (!res && a.postal) { res = await geoQueue(() => nominatim({ postalcode: a.postal, ...(a.city ? { city: a.city } : {}) })); if (res) prec = 'postal code'; }
+  if (!res && a.city) { res = await geoQueue(() => nominatim({ city: a.city })); if (res) prec = 'city'; }
+  if (!res) { const g = GAZ[a.city]; if (g && !g[2]) { p.lat = g[0]; p.lon = g[1]; p.geo = { key: '', prec: 'city (approximate)', src: 'built-in place list' }; return true; } p.geo = { key, prec: 'not found' }; return false; }
+  p.lat = +res.lat; p.lon = +res.lon; p.geo = { key, prec, src: 'OpenStreetMap Nominatim', label: res.display_name }; return true;
 }
